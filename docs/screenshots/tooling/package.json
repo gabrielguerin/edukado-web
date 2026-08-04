@@ -1,0 +1,12 @@
+{
+  "name": "edukado-screenshots",
+  "private": true,
+  "description": "Screenshot capture tooling for the Edukado gallery",
+  "scripts": {
+    "capture": "node capture.js",
+    "docs": "node gen_docs.js"
+  },
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}
