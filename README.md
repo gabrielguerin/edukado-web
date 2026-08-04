@@ -310,7 +310,7 @@ Group (institution) ──< Course >── Subject
 | Analytics | impressionist | Unique-per-IP view counts |
 | Mail | letter_opener (dev) · SendGrid (prod) | |
 | Seeds | faker + CSV fixtures | 200+ realistic students, real French universities |
-| Hosting | Render (`render.yaml`) | |
+| Hosting | Heroku + Bonsai (Elasticsearch) + S3 | `render.yaml` is a later, unfinished migration — see [Deployment](#deployment) |
 
 ---
 
@@ -687,21 +687,38 @@ validation messages use a malformed interpolation (`%<count>` without `s`).
 
 ## Deployment
 
-The app was deployed on **Render** via [`render.yaml`](render.yaml), which provisions
-a web service, a PostgreSQL database and a Redis instance, and runs
-[`bin/render-build.sh`](bin/render-build.sh) (bundle → precompile → migrate → seed).
+The app ran on **Heroku**, as two apps — `edukado-web-staging` and
+`edukado-web-production`. That is recorded in the code rather than in any deployment
+manifest: [`config/environments/production.rb`](config/environments/production.rb) hard-codes
+the mailer host as `edukado-web-production.herokuapp.com`, and the original history carries
+a commit about "deployment to Heroku".
 
-Production services, wired through environment variables:
+Production services, each read by the application itself rather than declared in a
+platform config:
 
-| Variable | Service |
-| --- | --- |
-| `RAILS_MASTER_KEY` | Credentials decryption |
-| `DATABASE_URL` | PostgreSQL |
-| `BONSAI_URL` | Hosted Elasticsearch |
-| `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` · `AWS_BUCKET` | S3 (`eu-west-3`) for Active Storage |
-| `DOMAIN` | Mailer host |
+| Variable | Service | Read in |
+| --- | --- | --- |
+| `BONSAI_URL` | Bonsai hosted Elasticsearch — a Heroku add-on | [`config/initializers/elasticsearch.rb`](config/initializers/elasticsearch.rb) |
+| `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` · `AWS_BUCKET` | S3 for Active Storage, region hard-coded to `eu-west-3` | [`config/storage.yml`](config/storage.yml) |
+| `DOMAIN` | Mailer host, falling back to `localhost:3000` | [`app/controllers/application_controller.rb`](app/controllers/application_controller.rb) |
+| `RAILS_MASTER_KEY` | Credentials decryption (`require_master_key = true`) | Rails |
 
-Transactional email went through **SendGrid**.
+Transactional email went through **SendGrid**, configured in
+[`config/environment.rb`](config/environment.rb).
+
+### An abandoned migration to Render
+
+[`render.yaml`](render.yaml) and [`bin/render-build.sh`](bin/render-build.sh) also sit in
+the tree, and they are easy to mistake for the production setup. They are not:
+
+- Neither file exists anywhere in the 861-commit original history. Both were added
+  afterwards, in the single commit that re-rooted this branch.
+- The manifest declares only `RAILS_MASTER_KEY` and `DATABASE_URL`. Nothing would have
+  supplied Elasticsearch or S3, so search and file uploads could not have worked.
+- The same commit **commented out** the SendGrid block in `config/environment.rb`, which is
+  live in the original history.
+
+Treat it as an unfinished attempt to redeploy the app years later, not as how it ran.
 
 ---
 
