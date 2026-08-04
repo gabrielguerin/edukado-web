@@ -144,6 +144,84 @@ lives in each policy's `Scope#resolve_admin`.
 
 ---
 
+## Showcase
+
+Running this yourself takes about half an hour (Ruby 2.6.4, Elasticsearch 7, a seed pass —
+see [Running it locally](#running-it-locally)). These are captures of the real thing so you
+do not have to.
+
+The interface is in French. The data is generated demo content in a local database. Every
+image below is a retina-resolution capture of a live page, not a mockup.
+
+**→ [Full annotated gallery — 59 screens](docs/screenshots/GALLERY.md)**
+
+### The student experience
+
+**Landing page (signed out)** — Public entry point built from the theme's reusable partials, leading with the platform's premise: pooled coursework in exchange for your own.
+
+![Landing page (signed out)](docs/screenshots/home-01.png)
+
+**Document feed** — The heart of the platform: every shared document, filterable by institution, course, category, study level and academic year, with vote counts and comment counts inline.
+
+![Document feed](docs/screenshots/feed-01.png)
+
+**Search autocomplete** — Typeahead suggestions served by a dedicated `posts#autocomplete` endpoint querying Elasticsearch through searchkick, which indexes titles with `word_start` matching.
+
+![Search autocomplete](docs/screenshots/search-02.png)
+
+**Document detail** — A shared document: description, tags, course and level metadata, upvote and downvote controls, the attached file, and the comment thread beneath.
+
+![Document detail](docs/screenshots/post-01.png)
+
+**Upload a document** — The contribution form: a Stimulus-driven Dropzone for the file, plus the taxonomy that makes it findable — institution, course, category, level and year.
+
+![Upload a document](docs/screenshots/upload-01.png)
+
+### The give-and-take rule
+
+**Contribution required** — After three downloads with no upload, the same partial swaps the download card for a contribution prompt. The rule is enforced in the view, and the download counter is incremented server-side by `DownloadsController`.
+
+![Contribution required, annotated](docs/screenshots/annotated/gate-01-annotated.png)
+
+### Reputation: points, badges, leaderboards
+
+**Student dashboard** — The signed-in student's own view: accumulated points, badges earned, and the documents they have contributed.
+
+![Student dashboard](docs/screenshots/dashboard-01.png)
+
+**Leaderboards** — Weekly, monthly and all-time rankings, computed by hand-written SQL over merit's score tables in `config/initializers/score.rb`.
+
+![Leaderboards](docs/screenshots/rankings-01.png)
+
+**Badge catalogue** — All 43 badges, created at boot from declarative rules in `config/initializers/merit.rb` across bronze, silver and gold tiers.
+
+![Badge catalogue](docs/screenshots/badges-01.png)
+
+### Back office and permissions
+
+**Admin — users** — The Administrate back office. A superadmin sees every account across all ten institutions.
+
+![Admin — users](docs/screenshots/admin-users-01.png)
+
+**One institution (supervisor)** — The identical route for a supervisor returns only their own institution's members. Administrate's `Punditize` prefers the policy's `resolve_admin` scope over `resolve`, so the narrowing happens in the Pundit policy rather than the controller.
+
+![One institution (supervisor), annotated](docs/screenshots/annotated/scope-02-annotated.png)
+
+### Responsive
+
+**Document feed (mobile)** — The feed at 390 px. The 2020 theme was responsive throughout — no separate mobile templates.
+
+![Document feed (mobile)](docs/screenshots/mobile-01.png)
+
+**→ [Full annotated gallery — 59 screens](docs/screenshots/GALLERY.md)**, including the
+complete Administrate back office, the discovery taxonomy, the authentication flows and the
+known rough edges.
+
+Both this section and the gallery are generated from the capture scripts in
+[`docs/screenshots/tooling/`](docs/screenshots/tooling/), which also document how to reproduce the whole set.
+
+---
+
 ## Architecture
 
 A conventional, server-rendered Rails 6 monolith — chosen deliberately: the whole
@@ -429,11 +507,16 @@ Tear everything down with `docker compose down -v`.
 All seeded accounts are pre-confirmed, and the password for every one of them is
 `password` (as set in step 5).
 
-| Email | Role | Starts with | Try it for |
-| --- | --- | --- | --- |
-| `superadmin@edukado.co` | Superadmin | 3 uploads | `/admin` across **all** institutions |
-| `supervisor@edukado.co` | Supervisor | 4 uploads | `/admin` scoped to one institution |
-| `user@edukado.co` | Student | 4 uploads | The ordinary student experience |
+| Email | Role | Try it for |
+| --- | --- | --- |
+| `superadmin@edukado.co` | Superadmin | `/admin` across **all** institutions |
+| `supervisor@edukado.co` | Supervisor | `/admin` scoped to one institution |
+| `user@edukado.co` | Student | The ordinary student experience |
+
+Each of the three starts with a handful of uploads — the ten documents imported from
+`lib/seeds/posts/posts_test.csv` are shared between them, and the seed also assigns
+generated documents at random, so the exact count per account varies from one seed run to
+the next.
 
 Plus **200 generated French students**, same password. Their emails are random per
 seed run, so pick one — this also finds a student with **no uploads**, which the
@@ -550,11 +633,34 @@ compose file above does.
 **Seeding leaves Elasticsearch with the wrong mapping**, which is why step 7 exists.
 The per-record indexing during seeds beats searchkick's own index creation.
 
-**The seed CSVs are coupled to random data.** `db/seeds.rb` finishes by importing
-documents from `lib/seeds/posts/posts_test.csv`, matching courses *by name* against
-courses generated with `Faker::Book.title`. It completed cleanly in my run, but it is
-luck rather than design: a different Faker draw could leave `post.course` nil and
-abort the import.
+**The seed CSVs are coupled to random data — and it does fail.** `db/seeds.rb` finishes
+by importing documents from `lib/seeds/posts/posts_test.csv`, matching courses *by name*
+against courses generated with `Faker::Book.title` under the `:fr` locale. The CSV
+hard-codes names like *"La Promise du voyeur"*; when the random draw does not happen to
+produce them, `Course.find_by` returns nil and seeding aborts with
+`ActiveRecord::RecordInvalid: Course doit exister`. It succeeded on one run and failed on
+the next. It matters more than it looks: those ten rows are the uploads belonging to the
+three test accounts, so a failed import leaves them with no contributions at all.
+[`docs/screenshots/tooling/finish-csv-import.rb`](docs/screenshots/tooling/finish-csv-import.rb)
+completes it idempotently without touching the seed file.
+
+**Four admin sections raise, because their policies were never written.** `routes.rb`
+exposes Administrate dashboards for the gem-owned tables — `admin/merit/scores`,
+`admin/merit/badges_sashes`, `admin/merit/activity_logs` and
+`admin/acts_as_votable/votes` — but no `Merit::ScorePolicy`, `Merit::BadgesSashPolicy`,
+`Merit::ActivityLogPolicy` or `ActsAsVotable::VotePolicy` exists. Every admin controller
+mixes in `Administrate::Punditize`, so all four fail with `Pundit::NotDefinedError`.
+
+**The back office is read-only in practice.** `ApplicationPolicy#update?` returns
+`false` and `edit?` delegates to it, and no resource policy overrides either — so
+`/admin/<resource>/:id/edit` is refused for **every** role, superadmin included, even
+though Administrate renders the links. The eleven index and show pages work; nothing can
+be changed through them.
+
+**`/levels/:id` always raises.** `LevelsController#show` is an empty method, but
+`app/views/levels/show.html.erb` still passes `object: @posts` to the kaminari partial.
+`@posts` is never assigned, so pagination calls `total_pages` on `nil`. The index at
+`/levels` is fine; every level detail page is not.
 
 **Secrets management is half-finished.** `config/database.yml` reads the development
 Postgres credentials from the encrypted store, which couples "can I run this at all"
